@@ -1,0 +1,114 @@
+name: Run Selenium Tests
+
+on:
+  push: # любой пуш
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Test mode: all | changed | path | marker"
+        required: true
+        default: "changed"
+      test_path:
+        description: "Path to tests (if mode=path)"
+        required: false
+      test_marker:
+        description: "Pytest marker (if mode=marker)"
+        required: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11]
+        workers: [4]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # обязательно, чтобы git diff работал
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip xvfb libnss3 libgtk-3-0 libasound2t64
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt
+          pip3 install pytest-xdist
+
+      - name: Setup Chrome and ChromeDriver
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Determine test mode
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            MODE="${{ github.event.inputs.mode }}"
+            PATH_INPUT="${{ github.event.inputs.test_path }}"
+            MARKER="${{ github.event.inputs.test_marker }}"
+          else
+            MODE="changed"
+            PATH_INPUT=""
+            MARKER=""
+          fi
+          echo "MODE=$MODE" >> $GITHUB_ENV
+          echo "PATH_INPUT=$PATH_INPUT" >> $GITHUB_ENV
+          echo "MARKER=$MARKER" >> $GITHUB_ENV
+          echo "WORKERS=${{ matrix.workers }}" >> $GITHUB_ENV
+          
+      
+
+      - name: Run tests
+        run: |
+          echo "Mode: $MODE"
+          echo "Test path: $PATH_INPUT"
+          echo "Marker: $MARKER"
+          echo "Workers: $WORKERS"
+
+          TEST_CMD="python3 -m pytest -v -n $WORKERS"
+
+          if [[ "$MODE" == "all" ]]; then
+              $TEST_CMD
+          elif [[ "$MODE" == "changed" ]]; then
+              PREV_COMMIT=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+              if [ -n "$PREV_COMMIT" ]; then
+                  CHANGED_TESTS=$(git diff --name-only $PREV_COMMIT ${{ github.sha }} | grep -E 'test/.*\.py$' || true)
+              else
+                  CHANGED_TESTS=""
+              fi
+
+              if [ -n "$CHANGED_TESTS" ]; then
+                  echo "Changed test files: $CHANGED_TESTS"
+                  $TEST_CMD $CHANGED_TESTS
+              else
+                  echo "No changed tests found. Running all tests."
+                  $TEST_CMD
+              fi
+          elif [[ "$MODE" == "path" ]]; then
+              if [ -n "$PATH_INPUT" ]; then
+                  $TEST_CMD "$PATH_INPUT"
+              else
+                  echo "Error: test_path is empty"
+                  exit 1
+              fi
+          elif [[ "$MODE" == "marker" ]]; then
+              if [ -n "$MARKER" ]; then
+                  $TEST_CMD -m "$MARKER"
+              else
+                  echo "Error: test_marker is empty"
+                  exit 1
+              fi
+          else
+              echo "Invalid mode: $MODE"
+              exit 1
+          fi
