@@ -1,18 +1,27 @@
 name: Run Selenium Tests
 
 on:
-  push: # любой пуш
-  workflow_dispatch:
+  push: # автоматический запуск
+  workflow_dispatch: # ручной запуск
     inputs:
-      mode:
-        description: "Test mode: all | changed | path | marker"
+      test_suite:
+        type: choice
+        description: "Выберите набор тестов"
         required: true
         default: "changed"
+        options:
+          - all
+          - changed
+          - smoke
+          - regression
+          - ui
+          - custom_path
+          - custom_marker
       test_path:
-        description: "Path to tests (if mode=path)"
+        description: "Укажите путь к тестам (если выбран custom_path)"
         required: false
       test_marker:
-        description: "Pytest marker (if mode=marker)"
+        description: "Укажите pytest-маркер (если выбран custom_marker)"
         required: false
 
 jobs:
@@ -27,15 +36,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # обязательно, чтобы git diff работал
-
-      - name: Cache pip
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
@@ -45,41 +46,20 @@ jobs:
           pip3 install -r requirements.txt
           pip3 install pytest-xdist
 
-      - name: Setup Chrome and ChromeDriver
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
-
-      - name: Determine test mode
+      - name: Run selected tests
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            MODE="${{ github.event.inputs.mode }}"
-            PATH_INPUT="${{ github.event.inputs.test_path }}"
-            MARKER="${{ github.event.inputs.test_marker }}"
-          else
-            MODE="changed"
-            PATH_INPUT=""
-            MARKER=""
-          fi
-          echo "MODE=$MODE" >> $GITHUB_ENV
-          echo "PATH_INPUT=$PATH_INPUT" >> $GITHUB_ENV
-          echo "MARKER=$MARKER" >> $GITHUB_ENV
-          echo "WORKERS=${{ matrix.workers }}" >> $GITHUB_ENV
-          
-      
+          TEST_SUITE="${{ github.event.inputs.test_suite }}"
+          TEST_PATH="${{ github.event.inputs.test_path }}"
+          TEST_MARKER="${{ github.event.inputs.test_marker }}"
+          echo "Режим запуска: $TEST_SUITE"
+          echo "Путь: $TEST_PATH"
+          echo "Маркер: $TEST_MARKER"
 
-      - name: Run tests
-        run: |
-          echo "Mode: $MODE"
-          echo "Test path: $PATH_INPUT"
-          echo "Marker: $MARKER"
-          echo "Workers: $WORKERS"
+          TEST_CMD="pytest -v -n ${{ matrix.workers }}"
 
-          TEST_CMD="python3 -m pytest -v -n $WORKERS"
-
-          if [[ "$MODE" == "all" ]]; then
+          if [[ "$TEST_SUITE" == "all" ]]; then
               $TEST_CMD
-          elif [[ "$MODE" == "changed" ]]; then
+          elif [[ "$TEST_SUITE" == "changed" ]]; then
               PREV_COMMIT=$(git rev-parse HEAD~1 2>/dev/null || echo "")
               if [ -n "$PREV_COMMIT" ]; then
                   CHANGED_TESTS=$(git diff --name-only $PREV_COMMIT ${{ github.sha }} | grep -E 'test/.*\.py$' || true)
@@ -88,27 +68,35 @@ jobs:
               fi
 
               if [ -n "$CHANGED_TESTS" ]; then
-                  echo "Changed test files: $CHANGED_TESTS"
+                  echo "Изменённые тесты: $CHANGED_TESTS"
                   $TEST_CMD $CHANGED_TESTS
               else
-                  echo "No changed tests found. Running all tests."
+                  echo "Изменённых тестов нет → гоняем все"
                   $TEST_CMD
               fi
-          elif [[ "$MODE" == "path" ]]; then
-              if [ -n "$PATH_INPUT" ]; then
-                  $TEST_CMD "$PATH_INPUT"
+          elif [[ "$TEST_SUITE" == "smoke" ]]; then
+              $TEST_CMD -m "smoke"
+          elif [[ "$TEST_SUITE" == "regression" ]]; then
+              $TEST_CMD -m "regression"
+          elif [[ "$TEST_SUITE" == "ui" ]]; then
+              $TEST_CMD -m "ui"
+          elif [[ "$TEST_SUITE" == "custom_path" ]]; then
+              if [ -n "$TEST_PATH" ]]; then
+                  echo "Запуск по пути: $TEST_PATH"
+                  $TEST_CMD "$TEST_PATH"
               else
-                  echo "Error: test_path is empty"
+                  echo "Ошибка: test_path пустой"
                   exit 1
               fi
-          elif [[ "$MODE" == "marker" ]]; then
-              if [ -n "$MARKER" ]; then
-                  $TEST_CMD -m "$MARKER"
+          elif [[ "$TEST_SUITE" == "custom_marker" ]]; then
+              if [ -n "$TEST_MARKER" ]]; then
+                  echo "Запуск по маркеру: $TEST_MARKER"
+                  $TEST_CMD -m "$TEST_MARKER"
               else
-                  echo "Error: test_marker is empty"
+                  echo "Ошибка: test_marker пустой"
                   exit 1
               fi
           else
-              echo "Invalid mode: $MODE"
+              echo "Неизвестный вариант: $TEST_SUITE"
               exit 1
           fi
