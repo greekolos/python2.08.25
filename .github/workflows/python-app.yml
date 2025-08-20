@@ -79,8 +79,8 @@ jobs:
                   echo "Изменённые тесты: $CHANGED_TESTS"
                   $TEST_CMD $CHANGED_TESTS
               else
-                  echo "Изменённых тестов нет → гоняем все"
-                  $TEST_CMD
+                  echo "Изменённых тестов нет → ничего не запускаем"
+                  exit 0
               fi
           elif [[ "$TEST_SUITE" == "smoke" ]]; then
               $TEST_CMD -m "smoke"
@@ -108,4 +108,3 @@ jobs:
               echo "Неизвестный вариант: $TEST_SUITE"
               exit 1
           fi
-      
