@@ -1,8 +1,8 @@
 name: Run Selenium Tests
 
 on:
-  push: # автоматический запуск
-  workflow_dispatch: # ручной запуск
+  push:
+  workflow_dispatch:
     inputs:
       test_suite:
         type: choice
@@ -21,8 +21,15 @@ on:
         description: "Укажите путь к тестам (если выбран custom_path)"
         required: false
       test_marker:
-        description: "Укажите pytest-маркер (если выбран custom_marker)"
+        type: choice
+        description: "Выберите pytest-маркер (если выбран custom_marker)"
         required: false
+        default: ""
+        options:
+          - ""
+          - smoke
+          - regression
+          - ui
 
 jobs:
   tests:
@@ -48,7 +55,7 @@ jobs:
 
       - name: Run selected tests
         run: |
-          # если ручной запуск → берем inputs, если push → дефолт "changed"
+          # Определяем режим запуска
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TEST_SUITE="${{ github.event.inputs.test_suite }}"
             TEST_PATH="${{ github.event.inputs.test_path }}"
@@ -63,7 +70,7 @@ jobs:
           echo "Путь: $TEST_PATH"
           echo "Маркер: $TEST_MARKER"
 
-          TEST_CMD="pytest -v -n ${{ matrix.workers }}"
+          TEST_CMD="python3 -m pytest -v -n ${{ matrix.workers }}"
 
           if [[ "$TEST_SUITE" == "all" ]]; then
               $TEST_CMD
@@ -82,12 +89,8 @@ jobs:
                   echo "Изменённых тестов нет → ничего не запускаем"
                   exit 0
               fi
-          elif [[ "$TEST_SUITE" == "smoke" ]]; then
-              $TEST_CMD -m "smoke"
-          elif [[ "$TEST_SUITE" == "regression" ]]; then
-              $TEST_CMD -m "regression"
-          elif [[ "$TEST_SUITE" == "ui" ]]; then
-              $TEST_CMD -m "ui"
+          elif [[ "$TEST_SUITE" =~ ^(smoke|regression|ui)$ ]]; then
+              $TEST_CMD -m "$TEST_SUITE"
           elif [[ "$TEST_SUITE" == "custom_path" ]]; then
               if [ -n "$TEST_PATH" ]; then
                   echo "Запуск по пути: $TEST_PATH"
@@ -101,7 +104,7 @@ jobs:
                   echo "Запуск по маркеру: $TEST_MARKER"
                   $TEST_CMD -m "$TEST_MARKER"
               else
-                  echo "Ошибка: test_marker пустой"
+                  echo "Ошибка: не выбран маркер"
                   exit 1
               fi
           else
