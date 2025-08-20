@@ -48,9 +48,17 @@ jobs:
 
       - name: Run selected tests
         run: |
-          TEST_SUITE="${{ github.event.inputs.test_suite }}"
-          TEST_PATH="${{ github.event.inputs.test_path }}"
-          TEST_MARKER="${{ github.event.inputs.test_marker }}"
+          # если ручной запуск → берем inputs, если push → дефолт "changed"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TEST_SUITE="${{ github.event.inputs.test_suite }}"
+            TEST_PATH="${{ github.event.inputs.test_path }}"
+            TEST_MARKER="${{ github.event.inputs.test_marker }}"
+          else
+            TEST_SUITE="changed"
+            TEST_PATH=""
+            TEST_MARKER=""
+          fi
+
           echo "Режим запуска: $TEST_SUITE"
           echo "Путь: $TEST_PATH"
           echo "Маркер: $TEST_MARKER"
@@ -81,7 +89,7 @@ jobs:
           elif [[ "$TEST_SUITE" == "ui" ]]; then
               $TEST_CMD -m "ui"
           elif [[ "$TEST_SUITE" == "custom_path" ]]; then
-              if [ -n "$TEST_PATH" ]]; then
+              if [ -n "$TEST_PATH" ]; then
                   echo "Запуск по пути: $TEST_PATH"
                   $TEST_CMD "$TEST_PATH"
               else
@@ -89,7 +97,7 @@ jobs:
                   exit 1
               fi
           elif [[ "$TEST_SUITE" == "custom_marker" ]]; then
-              if [ -n "$TEST_MARKER" ]]; then
+              if [ -n "$TEST_MARKER" ]; then
                   echo "Запуск по маркеру: $TEST_MARKER"
                   $TEST_CMD -m "$TEST_MARKER"
               else
@@ -100,3 +108,4 @@ jobs:
               echo "Неизвестный вариант: $TEST_SUITE"
               exit 1
           fi
+      
